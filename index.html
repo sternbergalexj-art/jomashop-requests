@@ -388,6 +388,19 @@
                 }
             };
 
+            const closeRequestQuietly = async (id) => {
+                if (confirm('Close this request without notifying the team member?')) {
+                    console.log('🔒 Closing request quietly...');
+                    await database.ref(`requests/${id}`).update({
+                        status: 'completed',
+                        response: '(Closed without response)',
+                        completedAt: new Date().toISOString()
+                    });
+                    console.log('✅ Request closed quietly (no notifications sent)');
+                    alert('✅ Request closed without notification');
+                }
+            };
+
             const deleteRequest = async (id) => {
                 await database.ref(`requests/${id}`).remove();
             };
@@ -500,7 +513,7 @@
                     </div>
 
                     {userRole === 'team' && <TeamView userName={userName} userEmail={userEmail} requests={requests} onSubmit={submitRequest} />}
-                    {userRole === 'manager' && <ManagerView requests={requests} sessions={sessions} onComplete={completeRequest} onDelete={deleteRequest} onBulkDelete={bulkDeleteRequests} onForceLogout={forceLogoutUser} />}
+                    {userRole === 'manager' && <ManagerView requests={requests} sessions={sessions} onComplete={completeRequest} onCloseQuietly={closeRequestQuietly} onDelete={deleteRequest} onBulkDelete={bulkDeleteRequests} onForceLogout={forceLogoutUser} />}
                 </div>
             );
         }
@@ -606,7 +619,7 @@
             );
         }
 
-        function ManagerView({ requests, sessions, onComplete, onDelete, onBulkDelete, onForceLogout }) {
+        function ManagerView({ requests, sessions, onComplete, onCloseQuietly, onDelete, onBulkDelete, onForceLogout }) {
             const [tab, setTab] = useState('dashboard');
             const [responses, setResponses] = useState({});
             const [selectedRequests, setSelectedRequests] = useState([]);
@@ -991,6 +1004,7 @@
                                                 onComplete(r.id, responses[r.id]);
                                                 setResponses({ ...responses, [r.id]: '' });
                                             }}
+                                            onCloseQuietly={onCloseQuietly}
                                             formatDate={formatDate}
                                             isOpen={openRequestId === r.id}
                                             onToggle={() => setOpenRequestId(openRequestId === r.id ? null : r.id)}
@@ -1156,7 +1170,7 @@
             );
         }
 
-        function CollapsibleManagerCard({ request, response, setResponse, onComplete, formatDate, isOpen, onToggle }) {
+        function CollapsibleManagerCard({ request, response, setResponse, onComplete, onCloseQuietly, formatDate, isOpen, onToggle }) {
             return (
                 <div className="border rounded-lg mb-3 overflow-hidden bg-white hover:shadow-md transition-shadow">
                     {/* Collapsed Header - Always Visible */}
@@ -1185,7 +1199,6 @@
                                 className="text-blue-600"
                             >
                                 {isOpen ? (
-                                    // Minus sign
                                     <path 
                                         d="M4 10H16" 
                                         stroke="currentColor" 
@@ -1193,7 +1206,6 @@
                                         strokeLinecap="round"
                                     />
                                 ) : (
-                                    // Plus sign
                                     <>
                                         <path 
                                             d="M10 4V16" 
@@ -1242,7 +1254,7 @@
 
                             <div className="space-y-3">
                                 <div>
-                                    <label className="block font-semibold mb-2 text-sm">Your Response:</label>
+                                    <label className="block font-semibold mb-2 text-sm">Your Response (Optional):</label>
                                     <textarea
                                         value={response}
                                         onChange={(e) => setResponse(e.target.value)}
@@ -1255,7 +1267,14 @@
                                     onClick={onComplete}
                                     className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-lg transition-colors"
                                 >
-                                    ✅ Complete & Send
+                                    ✅ Complete & Send Notification
+                                </button>
+
+                                <button
+                                    onClick={() => onCloseQuietly(request.id)}
+                                    className="w-full bg-gray-600 hover:bg-gray-700 text-white font-semibold py-3 rounded-lg transition-colors"
+                                >
+                                    🔒 Close Without Notification
                                 </button>
                             </div>
                         </div>
