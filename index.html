@@ -849,6 +849,91 @@
                                     </div>
                                 </div>
 
+                                {/* Daily Activity Chart */}
+                                <h3 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4">Daily Activity (Last 30 Days)</h3>
+                                <div className="bg-white border-2 rounded-lg p-4 mb-6 sm:mb-8">
+                                    {(() => {
+                                        // Calculate requests per day for last 30 days
+                                        const last30Days = [];
+                                        const today = new Date();
+                                        
+                                        for (let i = 29; i >= 0; i--) {
+                                            const date = new Date(today);
+                                            date.setDate(date.getDate() - i);
+                                            date.setHours(0, 0, 0, 0);
+                                            
+                                            const nextDay = new Date(date);
+                                            nextDay.setDate(nextDay.getDate() + 1);
+                                            
+                                            const count = requests.filter(r => {
+                                                const reqDate = new Date(r.submittedAt);
+                                                return reqDate >= date && reqDate < nextDay;
+                                            }).length;
+                                            
+                                            last30Days.push({
+                                                date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                                                count: count
+                                            });
+                                        }
+                                        
+                                        const maxCount = Math.max(...last30Days.map(d => d.count), 1);
+                                        
+                                        return (
+                                            <div>
+                                                <div className="flex items-end gap-1 h-32 sm:h-48">
+                                                    {last30Days.map((day, idx) => (
+                                                        <div key={idx} className="flex-1 flex flex-col justify-end items-center group relative">
+                                                            <div 
+                                                                className="w-full bg-blue-500 hover:bg-blue-600 rounded-t transition-all cursor-pointer"
+                                                                style={{ height: `${(day.count / maxCount) * 100}%`, minHeight: day.count > 0 ? '4px' : '0' }}
+                                                                title={`${day.date}: ${day.count} request${day.count !== 1 ? 's' : ''}`}
+                                                            >
+                                                                {/* Tooltip on hover */}
+                                                                <div className="invisible group-hover:visible absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded py-1 px-2 whitespace-nowrap z-10">
+                                                                    {day.date}: {day.count}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                
+                                                {/* X-axis labels - show every 5th day */}
+                                                <div className="flex gap-1 mt-2">
+                                                    {last30Days.map((day, idx) => (
+                                                        <div key={idx} className="flex-1 text-center">
+                                                            {idx % 5 === 0 && (
+                                                                <span className="text-xs text-gray-500">{day.date}</span>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                
+                                                {/* Summary stats */}
+                                                <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t">
+                                                    <div className="text-center">
+                                                        <div className="text-sm text-gray-500">Total (30d)</div>
+                                                        <div className="text-lg font-bold text-blue-600">
+                                                            {last30Days.reduce((sum, d) => sum + d.count, 0)}
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-center">
+                                                        <div className="text-sm text-gray-500">Avg/Day</div>
+                                                        <div className="text-lg font-bold text-blue-600">
+                                                            {(last30Days.reduce((sum, d) => sum + d.count, 0) / 30).toFixed(1)}
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-center">
+                                                        <div className="text-sm text-gray-500">Today</div>
+                                                        <div className="text-lg font-bold text-blue-600">
+                                                            {last30Days[last30Days.length - 1].count}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+
                                 <h3 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4">Requests by User</h3>
                                 {sortedUsers.length === 0 ? (
                                     <Empty icon="📊" text="No requests yet" />
@@ -1184,7 +1269,6 @@
         function CollapsibleManagerCard({ request, response, setResponse, onComplete, onCloseQuietly, formatDate, isOpen, onToggle }) {
             return (
                 <div className="border rounded-lg mb-3 overflow-hidden bg-white hover:shadow-md transition-shadow">
-                    {/* Collapsed Header - Always Visible */}
                     <button
                         onClick={onToggle}
                         className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
@@ -1236,7 +1320,6 @@
                         </div>
                     </button>
 
-                    {/* Expanded Content - Only When Open */}
                     {isOpen && (
                         <div className="border-t bg-gray-50 p-4">
                             <div className="mb-4">
