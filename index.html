@@ -51,18 +51,26 @@
         }
         const database = firebase.database();
 
-        // Function to update favicon with pending count
+        // Function to update favicon with pending count - MONEY GREEN "J"
         function updateFavicon(pendingCount) {
             const canvas = document.createElement('canvas');
             canvas.width = 128;
             canvas.height = 128;
             const ctx = canvas.getContext('2d');
 
-            // Draw clipboard emoji as background
-            ctx.font = '100px Arial';
+            // Draw money green background with slight gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, 128);
+            gradient.addColorStop(0, '#2ecc71');  // Lighter money green
+            gradient.addColorStop(1, '#27ae60');  // Darker money green
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 128, 128);
+
+            // Draw white "J" letter
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 90px Arial, sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('📋', 64, 64);
+            ctx.fillText('J', 64, 70);
 
             // If there are pending requests, add badge
             if (pendingCount > 0) {
@@ -312,6 +320,9 @@
                     } else {
                         document.title = 'Jomashop Request Manager';
                     }
+                } else {
+                    // Set favicon for non-managers (no badge)
+                    updateFavicon(0);
                 }
             }, [requests, userRole]);
 
