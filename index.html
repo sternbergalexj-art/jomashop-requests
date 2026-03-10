@@ -1,0 +1,1325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jomashop Request Manager</title>
+    <link rel="icon" type="image/x-icon" id="favicon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>📋</text></svg>">
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    
+    <!-- EmailJS -->
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Initialize EmailJS
+        emailjs.init("FDKZldsJpIIfXVR_e");
+
+        // EmailJS Configuration
+        const EMAILJS_SERVICE_ID = "service_jhs7cnl";
+        const EMAILJS_TEMPLATE_COMPLETION = "template_7w5t1k8";
+        const EMAILJS_TEMPLATE_NEW_REQUEST = "template_8noobzh";
+
+        // Your Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBfXtLGMnZ-2XXilblgJQUiwQGaU27NSEA",
+            authDomain: "jomashop-requests.firebaseapp.com",
+            databaseURL: "https://jomashop-requests-default-rtdb.firebaseio.com",
+            projectId: "jomashop-requests",
+            storageBucket: "jomashop-requests.firebasestorage.app",
+            messagingSenderId: "538811630510",
+            appId: "1:538811630510:web:5528a83dc69f0ce6513e3f"
+        };
+
+        // Teams Webhook URL
+        const TEAMS_WEBHOOK_URL = "https://default6c47504651e749d7b11f409c4de19d.4e.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/5a0117f0b0b843869088357a9d8e3aa6/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=FKVmyj9KK2lB-_AhAL1Wcc3XiKX9kYb9JfOjNbyxaOM";
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const database = firebase.database();
+
+        // Function to update favicon with pending count
+        function updateFavicon(pendingCount) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+
+            // Draw clipboard emoji as background
+            ctx.font = '100px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('📋', 64, 64);
+
+            // If there are pending requests, add badge
+            if (pendingCount > 0) {
+                // Badge background
+                ctx.fillStyle = '#EF4444'; // Red color
+                ctx.beginPath();
+                ctx.arc(95, 33, 30, 0, 2 * Math.PI);
+                ctx.fill();
+
+                // Badge border
+                ctx.strokeStyle = '#FFFFFF';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                // Badge text
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 40px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const displayCount = pendingCount > 9 ? '9+' : pendingCount.toString();
+                ctx.fillText(displayCount, 95, 36);
+            }
+
+            // Update favicon
+            const favicon = document.getElementById('favicon');
+            favicon.href = canvas.toDataURL('image/png');
+        }
+
+        // Function to track user sessions
+        function trackUserSession(email, name) {
+            const sessionData = {
+                email: email,
+                name: name,
+                lastLogin: new Date().toISOString(),
+                timestamp: Date.now()
+            };
+            database.ref(`sessions/${email.replace(/[.@]/g, '_')}`).set(sessionData);
+        }
+
+        // Function to remove user session
+        function removeUserSession(email) {
+            database.ref(`sessions/${email.replace(/[.@]/g, '_')}`).remove();
+        }
+
+        // Function to send manager notification when new request is submitted
+        async function sendManagerNotification(request) {
+            let requestDetails = '';
+            if (request.type === 'get-item') {
+                requestDetails = `Item: ${request.item}\n${request.link ? `Link: ${request.link}\n` : ''}${request.pricePoint ? `Price Point: ${request.pricePoint}\n` : ''}${request.zendeskId ? `Zendesk ID/Customer: ${request.zendeskId}` : ''}`;
+            } else {
+                requestDetails = `Order Number: ${request.orderNumber}\nItem: ${request.item}${request.zendeskId ? `\nZendesk ID/Customer: ${request.zendeskId}` : ''}`;
+            }
+
+            const templateParams = {
+                requester_name: request.submittedByName,
+                requester_email: request.submittedBy,
+                request_type: request.type === 'get-item' ? 'Get This Item' : 'Fill This Order',
+                request_details: requestDetails,
+                submitted_time: new Date(request.submittedAt).toLocaleString()
+            };
+
+            console.log('📧 Sending manager notification...');
+            console.log('Template params:', templateParams);
+
+            try {
+                const result = await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_NEW_REQUEST, templateParams);
+                console.log('✅ Manager notification sent successfully!', result);
+                return result;
+            } catch (error) {
+                console.error('❌ Error sending manager notification:', error);
+                alert('Warning: Manager email notification failed. Error: ' + (error.text || error.message));
+                throw error;
+            }
+        }
+
+        // Function to send email notification to requester when completed
+        async function sendCompletionEmail(request, response) {
+            let requestDetails = '';
+            if (request.type === 'get-item') {
+                requestDetails = `Item: ${request.item}\n${request.link ? `Link: ${request.link}\n` : ''}${request.pricePoint ? `Price Point: ${request.pricePoint}\n` : ''}${request.zendeskId ? `Zendesk ID/Customer: ${request.zendeskId}` : ''}`;
+            } else {
+                requestDetails = `Order Number: ${request.orderNumber}\nItem: ${request.item}${request.zendeskId ? `\nZendesk ID/Customer: ${request.zendeskId}` : ''}`;
+            }
+
+            const templateParams = {
+                requester_name: request.submittedByName,
+                to_email: request.submittedBy,
+                request_type: request.type === 'get-item' ? 'Get This Item' : 'Fill This Order',
+                request_details: requestDetails,
+                manager_response: response
+            };
+
+            console.log('📧 Sending completion email to requester...');
+            console.log('Template params:', templateParams);
+
+            try {
+                const result = await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_COMPLETION, templateParams);
+                console.log('✅ Completion email sent successfully!', result);
+                return result;
+            } catch (error) {
+                console.error('❌ Error sending completion email:', error);
+                alert('Warning: Completion email notification failed. Error: ' + (error.text || error.message));
+                throw error;
+            }
+        }
+
+        // Function to send Teams notification
+        async function sendTeamsNotification(request, response) {
+            const message = {
+                type: "message",
+                attachments: [{
+                    contentType: "application/vnd.microsoft.card.adaptive",
+                    content: {
+                        type: "AdaptiveCard",
+                        version: "1.4",
+                        body: [
+                            {
+                                type: "TextBlock",
+                                text: "✅ Request Completed",
+                                weight: "Bolder",
+                                size: "Large",
+                                color: "Good"
+                            },
+                            {
+                                type: "FactSet",
+                                facts: [
+                                    {
+                                        title: "Requester:",
+                                        value: request.submittedByName
+                                    },
+                                    {
+                                        title: "Email:",
+                                        value: request.submittedBy
+                                    },
+                                    {
+                                        title: "Request Type:",
+                                        value: request.type === 'get-item' ? 'Get This Item' : 'Fill This Order'
+                                    },
+                                    {
+                                        title: request.type === 'get-item' ? 'Item:' : 'Order Number:',
+                                        value: request.type === 'get-item' ? request.item : request.orderNumber
+                                    }
+                                ]
+                            },
+                            {
+                                type: "TextBlock",
+                                text: "Manager Response:",
+                                weight: "Bolder",
+                                spacing: "Medium"
+                            },
+                            {
+                                type: "TextBlock",
+                                text: response,
+                                wrap: true,
+                                color: "Accent"
+                            }
+                        ]
+                    }
+                }]
+            };
+
+            console.log('📢 Sending Teams notification...');
+
+            try {
+                const result = await fetch(TEAMS_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(message)
+                });
+                console.log('✅ Teams notification sent!', result.status);
+                return result;
+            } catch (error) {
+                console.error('❌ Error sending Teams notification:', error);
+            }
+        }
+
+        function App() {
+            const [view, setView] = useState('login');
+            const [userRole, setUserRole] = useState(null);
+            const [userName, setUserName] = useState('');
+            const [userEmail, setUserEmail] = useState('');
+            const [requests, setRequests] = useState([]);
+            const [sessions, setSessions] = useState({});
+            const [loginEmail, setLoginEmail] = useState('');
+            const [loginName, setLoginName] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            useEffect(() => {
+                const savedEmail = localStorage.getItem('jomashopEmail');
+                const savedName = localStorage.getItem('jomashopName');
+                const savedRole = localStorage.getItem('jomashopRole');
+                if (savedEmail && savedName && savedRole) {
+                    setUserEmail(savedEmail);
+                    setUserName(savedName);
+                    setUserRole(savedRole);
+                    setView(savedRole === 'team' ? 'submit' : 'manager');
+                    trackUserSession(savedEmail, savedName);
+                }
+            }, []);
+
+            useEffect(() => {
+                setLoading(true);
+                const requestsRef = database.ref('requests');
+                
+                requestsRef.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        const requestsArray = Object.keys(data).map(key => ({
+                            id: key,
+                            ...data[key]
+                        }));
+                        setRequests(requestsArray.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)));
+                    } else {
+                        setRequests([]);
+                    }
+                    setLoading(false);
+                });
+
+                return () => requestsRef.off();
+            }, []);
+
+            // Listen to sessions (only for managers)
+            useEffect(() => {
+                if (userRole === 'manager') {
+                    const sessionsRef = database.ref('sessions');
+                    
+                    sessionsRef.on('value', (snapshot) => {
+                        const data = snapshot.val();
+                        setSessions(data || {});
+                    });
+
+                    return () => sessionsRef.off();
+                }
+            }, [userRole]);
+
+            // Update favicon whenever requests change
+            useEffect(() => {
+                if (userRole === 'manager') {
+                    const pendingCount = requests.filter(r => r.status === 'pending').length;
+                    updateFavicon(pendingCount);
+                    
+                    // Also update document title
+                    if (pendingCount > 0) {
+                        document.title = `(${pendingCount}) Jomashop Requests`;
+                    } else {
+                        document.title = 'Jomashop Request Manager';
+                    }
+                }
+            }, [requests, userRole]);
+
+            const login = (role) => {
+                if (!loginEmail.trim() || !loginName.trim()) {
+                    alert('Please enter both your name and email');
+                    return;
+                }
+                
+                const emailLower = loginEmail.toLowerCase();
+                if (!emailLower.endsWith('@jomashop.com') && !emailLower.endsWith('@zuckers.com')) {
+                    alert('Please use your @jomashop.com or @zuckers.com email address');
+                    return;
+                }
+                
+                setUserRole(role);
+                setUserName(loginName);
+                setUserEmail(loginEmail);
+                localStorage.setItem('jomashopEmail', loginEmail);
+                localStorage.setItem('jomashopName', loginName);
+                localStorage.setItem('jomashopRole', role);
+                setView(role === 'team' ? 'submit' : 'manager');
+                trackUserSession(loginEmail, loginName);
+            };
+
+            const submitRequest = async (req) => {
+                const newRequest = {
+                    ...req,
+                    submittedBy: userEmail,
+                    submittedByName: userName,
+                    submittedAt: new Date().toISOString(),
+                    status: 'pending',
+                    response: ''
+                };
+                
+                console.log('💾 Saving request to Firebase...');
+                await database.ref('requests').push(newRequest);
+                console.log('✅ Request saved to Firebase');
+                
+                // Send email notification to manager
+                try {
+                    await sendManagerNotification(newRequest);
+                    alert('✅ Request submitted! Manager has been notified by email.');
+                } catch (error) {
+                    alert('✅ Request submitted! (Email notification failed, but request was saved)');
+                }
+            };
+
+            const completeRequest = async (id, response) => {
+                if (!response.trim()) {
+                    alert('Please type a response');
+                    return;
+                }
+                
+                const request = requests.find(r => r.id === id);
+                
+                console.log('💾 Updating request in Firebase...');
+                await database.ref(`requests/${id}`).update({
+                    status: 'completed',
+                    response: response,
+                    completedAt: new Date().toISOString()
+                });
+                console.log('✅ Request updated in Firebase');
+
+                // Send both notifications
+                try {
+                    await Promise.all([
+                        sendCompletionEmail(request, response),
+                        sendTeamsNotification(request, response)
+                    ]);
+                    alert('✅ Response sent! Email and Teams notification delivered to ' + request.submittedByName);
+                } catch (error) {
+                    alert('✅ Response saved! (Some notifications may have failed)');
+                }
+            };
+
+            const deleteRequest = async (id) => {
+                await database.ref(`requests/${id}`).remove();
+            };
+
+            const bulkDeleteRequests = async (ids) => {
+                if (confirm(`Delete ${ids.length} request(s)?`)) {
+                    const promises = ids.map(id => database.ref(`requests/${id}`).remove());
+                    await Promise.all(promises);
+                    alert(`✅ Deleted ${ids.length} request(s)`);
+                }
+            };
+
+            const forceLogoutUser = async (email, name) => {
+                if (confirm(`Force logout for ${name}?\n\nThis will immediately end their session and require them to log in again.`)) {
+                    await removeUserSession(email);
+                    alert(`✅ ${name} has been logged out`);
+                }
+            };
+
+            const logout = () => {
+                removeUserSession(userEmail);
+                localStorage.removeItem('jomashopEmail');
+                localStorage.removeItem('jomashopName');
+                localStorage.removeItem('jomashopRole');
+                setView('login');
+                setUserRole(null);
+                setUserName('');
+                setUserEmail('');
+                setLoginEmail('');
+                setLoginName('');
+                // Reset favicon
+                updateFavicon(0);
+                document.title = 'Jomashop Request Manager';
+            };
+
+            if (view === 'login') {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 w-full max-w-md">
+                            <h1 className="text-3xl sm:text-4xl font-bold text-center mb-2">Jomashop</h1>
+                            <p className="text-center text-gray-600 mb-6 sm:mb-8 text-sm sm:text-base">Request Management System</p>
+                            
+                            <div className="space-y-3 sm:space-y-4 mb-6">
+                                <div>
+                                    <label className="block text-xs sm:text-sm font-semibold mb-2">Your Name</label>
+                                    <input
+                                        type="text"
+                                        value={loginName}
+                                        onChange={(e) => setLoginName(e.target.value)}
+                                        placeholder="e.g., Sarah Chen"
+                                        className="w-full px-3 sm:px-4 py-2 sm:py-3 border rounded-lg text-base sm:text-lg"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs sm:text-sm font-semibold mb-2">Your Email</label>
+                                    <input
+                                        type="email"
+                                        value={loginEmail}
+                                        onChange={(e) => setLoginEmail(e.target.value)}
+                                        placeholder="name@jomashop.com"
+                                        className="w-full px-3 sm:px-4 py-2 sm:py-3 border rounded-lg text-base sm:text-lg"
+                                        onKeyPress={(e) => e.key === 'Enter' && login('team')}
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Use @jomashop.com or @zuckers.com</p>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-3">
+                                <button
+                                    onClick={() => login('team')}
+                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 sm:py-4 rounded-lg text-base sm:text-lg"
+                                >
+                                    👥 Team Member
+                                </button>
+                                <button
+                                    onClick={() => login('manager')}
+                                    className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-4 rounded-lg text-base sm:text-lg"
+                                >
+                                    👔 Manager
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (loading) {
+                return (
+                    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+                        <div className="text-center">
+                            <div className="text-5xl sm:text-6xl mb-4">⏳</div>
+                            <p className="text-lg sm:text-xl text-gray-600">Loading requests...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-gray-50">
+                    <div className="bg-white shadow-sm border-b sticky top-0 z-10">
+                        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-4 flex justify-between items-center">
+                            <div className="min-w-0 flex-1">
+                                <h1 className="text-lg sm:text-2xl font-bold truncate">Jomashop Requests</h1>
+                                <p className="text-xs sm:text-sm text-gray-600 truncate">{userName} - {userRole === 'manager' ? 'Manager' : 'Team'}</p>
+                            </div>
+                            <button onClick={logout} className="px-3 sm:px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-xs sm:text-sm whitespace-nowrap ml-2">
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+
+                    {userRole === 'team' && <TeamView userName={userName} userEmail={userEmail} requests={requests} onSubmit={submitRequest} />}
+                    {userRole === 'manager' && <ManagerView requests={requests} sessions={sessions} onComplete={completeRequest} onDelete={deleteRequest} onBulkDelete={bulkDeleteRequests} onForceLogout={forceLogoutUser} />}
+                </div>
+            );
+        }
+
+        function TeamView({ userName, userEmail, requests, onSubmit }) {
+            const [tab, setTab] = useState('submit');
+            const [type, setType] = useState('get-item');
+            const [form, setForm] = useState({ item: '', link: '', pricePoint: '', orderNumber: '', zendeskId: '' });
+
+            const myRequests = requests.filter(r => r.submittedBy === userEmail);
+            const pending = myRequests.filter(r => r.status === 'pending');
+            const completed = myRequests.filter(r => r.status === 'completed');
+
+            const submit = (e) => {
+                e.preventDefault();
+                onSubmit({ type, ...form });
+                setForm({ item: '', link: '', pricePoint: '', orderNumber: '', zendeskId: '' });
+            };
+
+            const formatDate = (isoString) => {
+                return new Date(isoString).toLocaleString();
+            };
+
+            return (
+                <div className="max-w-4xl mx-auto p-3 sm:p-6">
+                    <div className="bg-white rounded-lg shadow">
+                        <div className="border-b flex overflow-x-auto">
+                            <Tab active={tab === 'submit'} onClick={() => setTab('submit')}>Submit</Tab>
+                            <Tab active={tab === 'pending'} onClick={() => setTab('pending')}>Pending ({pending.length})</Tab>
+                            <Tab active={tab === 'completed'} onClick={() => setTab('completed')}>Completed ({completed.length})</Tab>
+                        </div>
+
+                        {tab === 'submit' && (
+                            <div className="p-4 sm:p-8">
+                                <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">Submit New Request</h2>
+                                
+                                <div className="grid grid-cols-2 gap-2 sm:gap-4 mb-4 sm:mb-6">
+                                    <button
+                                        type="button"
+                                        onClick={() => setType('get-item')}
+                                        className={`p-3 sm:p-6 rounded-lg border-2 transition ${type === 'get-item' ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}
+                                    >
+                                        <div className="text-3xl sm:text-5xl mb-1 sm:mb-2">🛍️</div>
+                                        <div className="font-bold text-sm sm:text-lg">Get Item</div>
+                                        <div className="text-xs sm:text-sm text-gray-600 hidden sm:block">Source a product</div>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setType('fill-order')}
+                                        className={`p-3 sm:p-6 rounded-lg border-2 transition ${type === 'fill-order' ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}
+                                    >
+                                        <div className="text-3xl sm:text-5xl mb-1 sm:mb-2">📦</div>
+                                        <div className="font-bold text-sm sm:text-lg">Fill Order</div>
+                                        <div className="text-xs sm:text-sm text-gray-600 hidden sm:block">Process an order</div>
+                                    </button>
+                                </div>
+
+                                <form onSubmit={submit} className="space-y-3 sm:space-y-4">
+                                    {type === 'get-item' ? (
+                                        <>
+                                            <Field label="Item *" required value={form.item} onChange={(v) => setForm({ ...form, item: v })} placeholder="e.g., Rolex Submariner Date" />
+                                            <Field label="Link" value={form.link} onChange={(v) => setForm({ ...form, link: v })} placeholder="https://..." />
+                                            <Field label="Price Point" value={form.pricePoint} onChange={(v) => setForm({ ...form, pricePoint: v })} placeholder="$10,000 - $15,000" />
+                                            <Field label="Zendesk ID / Customer" value={form.zendeskId} onChange={(v) => setForm({ ...form, zendeskId: v })} placeholder="e.g., #12345 or John Smith" />
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Field label="Order Number *" required value={form.orderNumber} onChange={(v) => setForm({ ...form, orderNumber: v })} placeholder="ORD-2024-1234" />
+                                            <Field label="Item *" required value={form.item} onChange={(v) => setForm({ ...form, item: v })} placeholder="e.g., Omega Seamaster" />
+                                            <Field label="Zendesk ID / Customer" value={form.zendeskId} onChange={(v) => setForm({ ...form, zendeskId: v })} placeholder="e.g., #12345 or John Smith" />
+                                        </>
+                                    )}
+                                    <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 sm:py-4 rounded-lg text-base sm:text-lg">
+                                        📤 Submit Request
+                                    </button>
+                                </form>
+                            </div>
+                        )}
+
+                        {tab === 'pending' && (
+                            <div className="p-4 sm:p-8">
+                                <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">My Pending Requests</h2>
+                                {pending.length === 0 ? (
+                                    <Empty icon="📭" text="No pending requests" />
+                                ) : (
+                                    pending.map(r => <PendingCard key={r.id} request={r} formatDate={formatDate} />)
+                                )}
+                            </div>
+                        )}
+
+                        {tab === 'completed' && (
+                            <div className="p-4 sm:p-8">
+                                <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">Completed Requests</h2>
+                                {completed.length === 0 ? (
+                                    <Empty icon="✅" text="No completed requests yet" />
+                                ) : (
+                                    completed.map(r => <CompletedCard key={r.id} request={r} formatDate={formatDate} />)
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function ManagerView({ requests, sessions, onComplete, onDelete, onBulkDelete, onForceLogout }) {
+            const [tab, setTab] = useState('dashboard');
+            const [responses, setResponses] = useState({});
+            const [selectedRequests, setSelectedRequests] = useState([]);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [filterBy, setFilterBy] = useState('all');
+            const [selectedUserEmail, setSelectedUserEmail] = useState(null);
+            const [openRequestId, setOpenRequestId] = useState(null);
+            const [sortBy, setSortBy] = useState('total');
+            const [sortDirection, setSortDirection] = useState('desc');
+
+            const pending = requests.filter(r => r.status === 'pending');
+            const completed = requests.filter(r => r.status === 'completed');
+
+            const formatDate = (isoString) => {
+                return new Date(isoString).toLocaleString();
+            };
+
+            const getTimeSince = (isoString) => {
+                const now = new Date();
+                const then = new Date(isoString);
+                const diffMs = now - then;
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMs / 3600000);
+                const diffDays = Math.floor(diffMs / 86400000);
+                
+                if (diffMins < 1) return 'Just now';
+                if (diffMins < 60) return `${diffMins}m ago`;
+                if (diffHours < 24) return `${diffHours}h ago`;
+                return `${diffDays}d ago`;
+            };
+
+            // Filter pending requests based on search
+            const filteredPending = pending.filter(req => {
+                if (!searchQuery.trim()) return true;
+                
+                const query = searchQuery.toLowerCase();
+                const userName = (req.submittedByName || '').toLowerCase();
+                const userEmail = (req.submittedBy || '').toLowerCase();
+                const item = (req.item || '').toLowerCase();
+                const orderNumber = (req.orderNumber || '').toLowerCase();
+                const zendeskId = (req.zendeskId || '').toLowerCase();
+                
+                if (filterBy === 'user') {
+                    return userName.includes(query) || userEmail.includes(query);
+                } else if (filterBy === 'item') {
+                    return item.includes(query) || orderNumber.includes(query) || zendeskId.includes(query);
+                } else {
+                    return userName.includes(query) || 
+                           userEmail.includes(query) || 
+                           item.includes(query) || 
+                           orderNumber.includes(query) ||
+                           zendeskId.includes(query);
+                }
+            });
+
+            // Calculate dashboard stats
+            const userStats = {};
+            requests.forEach(req => {
+                const email = req.submittedBy || 'Unknown';
+                const name = req.submittedByName || 'Unknown';
+                if (!userStats[email]) {
+                    userStats[email] = {
+                        name: name,
+                        email: email,
+                        total: 0,
+                        pending: 0,
+                        completed: 0,
+                        lastLogin: null
+                    };
+                }
+                userStats[email].total++;
+                if (req.status === 'pending') userStats[email].pending++;
+                if (req.status === 'completed') userStats[email].completed++;
+            });
+
+            // Add session data to user stats
+            Object.keys(sessions).forEach(sessionKey => {
+                const session = sessions[sessionKey];
+                const email = session.email;
+                if (userStats[email]) {
+                    userStats[email].lastLogin = session.lastLogin;
+                }
+            });
+
+            // Sort users
+            const sortedUsers = Object.values(userStats).sort((a, b) => {
+                let compareA, compareB;
+                
+                switch(sortBy) {
+                    case 'name':
+                        compareA = a.name.toLowerCase();
+                        compareB = b.name.toLowerCase();
+                        break;
+                    case 'total':
+                        compareA = a.total;
+                        compareB = b.total;
+                        break;
+                    case 'pending':
+                        compareA = a.pending;
+                        compareB = b.pending;
+                        break;
+                    case 'completed':
+                        compareA = a.completed;
+                        compareB = b.completed;
+                        break;
+                    case 'lastLogin':
+                        compareA = a.lastLogin ? new Date(a.lastLogin).getTime() : 0;
+                        compareB = b.lastLogin ? new Date(b.lastLogin).getTime() : 0;
+                        break;
+                    default:
+                        compareA = a.total;
+                        compareB = b.total;
+                }
+
+                if (sortDirection === 'asc') {
+                    return compareA > compareB ? 1 : -1;
+                } else {
+                    return compareA < compareB ? 1 : -1;
+                }
+            });
+
+            const handleSort = (column) => {
+                if (sortBy === column) {
+                    setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                } else {
+                    setSortBy(column);
+                    setSortDirection('desc');
+                }
+            };
+
+            const SortIcon = ({ column }) => {
+                if (sortBy !== column) return <span className="text-gray-400">⇅</span>;
+                return sortDirection === 'asc' ? <span>↑</span> : <span>↓</span>;
+            };
+
+            const toggleSelectRequest = (id) => {
+                setSelectedRequests(prev => 
+                    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                );
+            };
+
+            const toggleSelectAll = () => {
+                if (selectedRequests.length === completed.length) {
+                    setSelectedRequests([]);
+                } else {
+                    setSelectedRequests(completed.map(r => r.id));
+                }
+            };
+
+            // Export to CSV
+            const exportToExcel = () => {
+                const csvContent = [
+                    ['Name', 'Email', 'Total Requests', 'Pending', 'Completed', 'Last Login'],
+                    ...sortedUsers.map(user => [
+                        user.name,
+                        user.email,
+                        user.total,
+                        user.pending,
+                        user.completed,
+                        user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'
+                    ])
+                ].map(row => row.join(',')).join('\n');
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', `jomashop-dashboard-${new Date().toISOString().split('T')[0]}.csv`);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
+            // View user's requests
+            const viewUserRequests = (email) => {
+                setSelectedUserEmail(email);
+                setTab('pending');
+                setSearchQuery(email);
+                setFilterBy('user');
+            };
+
+            return (
+                <div className="max-w-7xl mx-auto p-3 sm:p-6">
+                    <div className="bg-white rounded-lg shadow">
+                        <div className="border-b flex overflow-x-auto">
+                            <Tab active={tab === 'dashboard'} onClick={() => { setTab('dashboard'); setSelectedUserEmail(null); setSearchQuery(''); }}>📊 Stats</Tab>
+                            <Tab active={tab === 'pending'} onClick={() => setTab('pending')}>Pending ({pending.length})</Tab>
+                            <Tab active={tab === 'completed'} onClick={() => setTab('completed')}>Completed ({completed.length})</Tab>
+                        </div>
+
+                        {tab === 'dashboard' && (
+                            <div className="p-4 sm:p-8">
+                                <div className="flex justify-between items-center mb-4 sm:mb-6">
+                                    <h2 className="text-xl sm:text-2xl font-bold">Request Statistics</h2>
+                                    <button
+                                        onClick={exportToExcel}
+                                        className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap"
+                                    >
+                                        📊 Export to Excel
+                                    </button>
+                                </div>
+                                
+                                <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 sm:mb-8">
+                                    <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-3 sm:p-6">
+                                        <div className="text-2xl sm:text-3xl font-bold text-blue-600">{requests.length}</div>
+                                        <div className="text-xs sm:text-sm text-gray-600">Total</div>
+                                    </div>
+                                    <div className="bg-yellow-50 border-2 border-yellow-200 rounded-lg p-3 sm:p-6">
+                                        <div className="text-2xl sm:text-3xl font-bold text-yellow-600">{pending.length}</div>
+                                        <div className="text-xs sm:text-sm text-gray-600">Pending</div>
+                                    </div>
+                                    <div className="bg-green-50 border-2 border-green-200 rounded-lg p-3 sm:p-6">
+                                        <div className="text-2xl sm:text-3xl font-bold text-green-600">{completed.length}</div>
+                                        <div className="text-xs sm:text-sm text-gray-600">Completed</div>
+                                    </div>
+                                </div>
+
+                                <h3 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4">Requests by User</h3>
+                                {sortedUsers.length === 0 ? (
+                                    <Empty icon="📊" text="No requests yet" />
+                                ) : (
+                                    <div className="overflow-x-auto -mx-4 sm:mx-0">
+                                        <table className="w-full border-collapse min-w-max">
+                                            <thead>
+                                                <tr className="bg-gray-100">
+                                                    <th className="text-left p-2 sm:p-3 border-b font-semibold text-xs sm:text-sm cursor-pointer hover:bg-gray-200" onClick={() => handleSort('name')}>
+                                                        Name <SortIcon column="name" />
+                                                    </th>
+                                                    <th className="text-left p-2 sm:p-3 border-b font-semibold text-xs sm:text-sm hidden sm:table-cell">Email</th>
+                                                    <th className="text-center p-2 sm:p-3 border-b font-semibold text-xs sm:text-sm cursor-pointer hover:bg-gray-200" onClick={() => handleSort('total')}>
+                                                        Total <SortIcon column="total" />
+                                                    </th>
+                                                    <th className="text-center p-2 sm:p-3 border-b font-semibold text-xs sm:text-sm cursor-pointer hover:bg-gray-200" onClick={() => handleSort('pending')}>
+                                                        Pending <SortIcon column="pending" />
+                                                    </th>
+                                                    <th className="text-center p-2 sm:p-3 border-b font-semibold text-xs sm:text-sm cursor-pointer hover:bg-gray-200" onClick={() => handleSort('completed')}>
+                                                        Completed <SortIcon column="completed" />
+                                                    </th>
+                                                    <th className="text-center p-2 sm:p-3 border-b font-semibold text-xs sm:text-sm cursor-pointer hover:bg-gray-200 hidden md:table-cell" onClick={() => handleSort('lastLogin')}>
+                                                        Last Login <SortIcon column="lastLogin" />
+                                                    </th>
+                                                    <th className="text-center p-2 sm:p-3 border-b font-semibold text-xs sm:text-sm">Session</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {sortedUsers.map(user => (
+                                                    <tr key={user.email} className="hover:bg-gray-50">
+                                                        <td className="p-2 sm:p-3 border-b text-xs sm:text-base">
+                                                            <button
+                                                                onClick={() => viewUserRequests(user.email)}
+                                                                className="text-blue-600 hover:text-blue-800 hover:underline font-semibold text-left"
+                                                            >
+                                                                {user.name}
+                                                            </button>
+                                                        </td>
+                                                        <td className="p-2 sm:p-3 border-b text-xs text-gray-600 hidden sm:table-cell">{user.email}</td>
+                                                        <td className="p-2 sm:p-3 border-b text-center font-bold text-xs sm:text-base">{user.total}</td>
+                                                        <td className="p-2 sm:p-3 border-b text-center text-xs sm:text-base">
+                                                            {user.pending > 0 ? (
+                                                                <button
+                                                                    onClick={() => viewUserRequests(user.email)}
+                                                                    className="text-yellow-600 hover:text-yellow-800 font-bold hover:underline"
+                                                                >
+                                                                    {user.pending}
+                                                                </button>
+                                                            ) : (
+                                                                <span className="text-yellow-600">{user.pending}</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-2 sm:p-3 border-b text-center text-green-600 text-xs sm:text-base">{user.completed}</td>
+                                                        <td className="p-2 sm:p-3 border-b text-center text-xs text-gray-600 hidden md:table-cell">
+                                                            {user.lastLogin ? (
+                                                                <span className="flex items-center justify-center gap-1">
+                                                                    <span className="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
+                                                                    {getTimeSince(user.lastLogin)}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-gray-400">Never</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-2 sm:p-3 border-b text-center">
+                                                            {user.lastLogin ? (
+                                                                <button
+                                                                    onClick={() => onForceLogout(user.email, user.name)}
+                                                                    className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded text-xs font-semibold"
+                                                                    title="Force this user to log out"
+                                                                >
+                                                                    Force Logout
+                                                                </button>
+                                                            ) : (
+                                                                <span className="text-gray-400 text-xs">Offline</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {tab === 'pending' && (
+                            <div className="p-4 sm:p-8">
+                                <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">Pending Requests</h2>
+                                
+                                {pending.length > 0 && (
+                                    <div className="mb-4 sm:mb-6 space-y-2 sm:space-y-3">
+                                        <div className="flex gap-2 sm:gap-3">
+                                            <input
+                                                type="text"
+                                                value={searchQuery}
+                                                onChange={(e) => setSearchQuery(e.target.value)}
+                                                placeholder="Search..."
+                                                className="flex-1 px-3 sm:px-4 py-2 sm:py-3 border-2 rounded-lg text-sm sm:text-lg focus:border-blue-500 outline-none"
+                                            />
+                                            {searchQuery && (
+                                                <button
+                                                    onClick={() => setSearchQuery('')}
+                                                    className="px-3 sm:px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg font-semibold text-xs sm:text-sm whitespace-nowrap"
+                                                >
+                                                    Clear
+                                                </button>
+                                            )}
+                                        </div>
+                                        
+                                        <div className="flex gap-2 flex-wrap">
+                                            <span className="text-xs sm:text-sm text-gray-600 self-center">Filter:</span>
+                                            <button
+                                                onClick={() => setFilterBy('all')}
+                                                className={`px-2 sm:px-4 py-1 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition ${
+                                                    filterBy === 'all' 
+                                                        ? 'bg-blue-600 text-white' 
+                                                        : 'bg-gray-200 hover:bg-gray-300'
+                                                }`}
+                                            >
+                                                All
+                                            </button>
+                                            <button
+                                                onClick={() => setFilterBy('user')}
+                                                className={`px-2 sm:px-4 py-1 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition ${
+                                                    filterBy === 'user' 
+                                                        ? 'bg-blue-600 text-white' 
+                                                        : 'bg-gray-200 hover:bg-gray-300'
+                                                }`}
+                                            >
+                                                👤 User
+                                            </button>
+                                            <button
+                                                onClick={() => setFilterBy('item')}
+                                                className={`px-2 sm:px-4 py-1 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold transition ${
+                                                    filterBy === 'item' 
+                                                        ? 'bg-blue-600 text-white' 
+                                                        : 'bg-gray-200 hover:bg-gray-300'
+                                                }`}
+                                            >
+                                                📦 Item
+                                            </button>
+                                        </div>
+
+                                        {searchQuery && (
+                                            <div className="text-xs sm:text-sm text-gray-600">
+                                                Showing {filteredPending.length} of {pending.length} requests
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {pending.length === 0 ? (
+                                    <Empty icon="📦" text="No pending requests" />
+                                ) : filteredPending.length === 0 ? (
+                                    <Empty icon="🔍" text="No matches" />
+                                ) : (
+                                    filteredPending.map(r => (
+                                        <CollapsibleManagerCard
+                                            key={r.id}
+                                            request={r}
+                                            response={responses[r.id] || ''}
+                                            setResponse={(v) => setResponses({ ...responses, [r.id]: v })}
+                                            onComplete={() => {
+                                                onComplete(r.id, responses[r.id]);
+                                                setResponses({ ...responses, [r.id]: '' });
+                                            }}
+                                            formatDate={formatDate}
+                                            isOpen={openRequestId === r.id}
+                                            onToggle={() => setOpenRequestId(openRequestId === r.id ? null : r.id)}
+                                        />
+                                    ))
+                                )}
+                            </div>
+                        )}
+
+                        {tab === 'completed' && (
+                            <div className="p-4 sm:p-8">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-3">
+                                    <h2 className="text-xl sm:text-2xl font-bold">Completed Requests</h2>
+                                    {completed.length > 0 && (
+                                        <div className="flex gap-2 sm:gap-3 w-full sm:w-auto">
+                                            <button
+                                                onClick={toggleSelectAll}
+                                                className="flex-1 sm:flex-none px-3 sm:px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap"
+                                            >
+                                                {selectedRequests.length === completed.length ? 'Deselect' : 'Select All'}
+                                            </button>
+                                            {selectedRequests.length > 0 && (
+                                                <button
+                                                    onClick={() => {
+                                                        onBulkDelete(selectedRequests);
+                                                        setSelectedRequests([]);
+                                                    }}
+                                                    className="flex-1 sm:flex-none px-3 sm:px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap"
+                                                >
+                                                    🗑️ Delete ({selectedRequests.length})
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                {completed.length === 0 ? (
+                                    <Empty icon="✅" text="No completed requests" />
+                                ) : (
+                                    completed.map(r => (
+                                        <CompletedManagerCard 
+                                            key={r.id} 
+                                            request={r} 
+                                            onDelete={onDelete} 
+                                            formatDate={formatDate}
+                                            isSelected={selectedRequests.includes(r.id)}
+                                            onToggleSelect={() => toggleSelectRequest(r.id)}
+                                        />
+                                    ))
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function Tab({ active, onClick, children }) {
+            return (
+                <button
+                    onClick={onClick}
+                    className={`px-3 sm:px-6 py-3 sm:py-4 font-semibold transition text-xs sm:text-base whitespace-nowrap ${active ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                    {children}
+                </button>
+            );
+        }
+
+        function Field({ label, required, value, onChange, placeholder }) {
+            return (
+                <div>
+                    <label className="block text-xs sm:text-sm font-bold mb-2">{label}</label>
+                    <input
+                        type="text"
+                        required={required}
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        placeholder={placeholder}
+                        className="w-full px-3 sm:px-4 py-2 sm:py-3 border rounded-lg text-base sm:text-lg"
+                    />
+                </div>
+            );
+        }
+
+        function Empty({ icon, text }) {
+            return (
+                <div className="text-center py-12 sm:py-16 text-gray-400">
+                    <div className="text-5xl sm:text-7xl mb-3 sm:mb-4">{icon}</div>
+                    <p className="text-base sm:text-xl">{text}</p>
+                </div>
+            );
+        }
+
+        function PendingCard({ request, formatDate }) {
+            return (
+                <div className="border-2 p-4 sm:p-6 rounded-lg mb-3 sm:mb-4">
+                    <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                        <span className="text-2xl sm:text-3xl">{request.type === 'get-item' ? '🛍️' : '📦'}</span>
+                        <div className="min-w-0 flex-1">
+                            <div className="font-bold text-sm sm:text-base truncate">{request.type === 'get-item' ? 'Get Item' : 'Fill Order'}</div>
+                            <div className="text-xs sm:text-sm text-gray-500">{formatDate(request.submittedAt)}</div>
+                        </div>
+                    </div>
+                    <div className="bg-gray-50 p-3 sm:p-4 rounded space-y-1 sm:space-y-2 text-sm sm:text-base">
+                        {request.type === 'get-item' ? (
+                            <>
+                                <div className="break-words"><strong>Item:</strong> {request.item}</div>
+                                {request.link && <div className="break-all"><strong>Link:</strong> <a href={request.link} className="text-blue-600" target="_blank">{request.link}</a></div>}
+                                {request.pricePoint && <div><strong>Price:</strong> {request.pricePoint}</div>}
+                                {request.zendeskId && <div><strong>Zendesk:</strong> {request.zendeskId}</div>}
+                            </>
+                        ) : (
+                            <>
+                                <div className="break-words"><strong>Order:</strong> {request.orderNumber}</div>
+                                <div className="break-words"><strong>Item:</strong> {request.item}</div>
+                                {request.zendeskId && <div><strong>Zendesk:</strong> {request.zendeskId}</div>}
+                            </>
+                        )}
+                    </div>
+                    <div className="mt-3 sm:mt-4 p-2 sm:p-3 bg-yellow-50 border border-yellow-200 rounded text-center text-yellow-800 text-xs sm:text-base">
+                        ⏳ Waiting for response...
+                    </div>
+                </div>
+            );
+        }
+
+        function CompletedCard({ request, formatDate }) {
+            return (
+                <div className="border-2 border-green-200 bg-green-50 p-4 sm:p-6 rounded-lg mb-3 sm:mb-4">
+                    <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                        <span className="text-2xl sm:text-3xl">{request.type === 'get-item' ? '🛍️' : '📦'}</span>
+                        <div className="flex-1 min-w-0">
+                            <div className="font-bold text-sm sm:text-base truncate">{request.type === 'get-item' ? 'Get Item' : 'Fill Order'}</div>
+                            <div className="text-xs sm:text-sm text-gray-600">Completed: {formatDate(request.completedAt)}</div>
+                        </div>
+                        <span className="text-xl sm:text-2xl">✅</span>
+                    </div>
+                    
+                    <div className="bg-white p-3 sm:p-4 rounded border mb-2 sm:mb-3">
+                        <div className="font-bold mb-2 text-sm sm:text-base">Original Request:</div>
+                        <div className="space-y-1 text-gray-700 text-xs sm:text-base">
+                            {request.type === 'get-item' ? (
+                                <>
+                                    <div className="break-words"><strong>Item:</strong> {request.item}</div>
+                                    {request.link && <div className="break-all"><strong>Link:</strong> <a href={request.link} className="text-blue-600" target="_blank">{request.link}</a></div>}
+                                    {request.pricePoint && <div><strong>Price:</strong> {request.pricePoint}</div>}
+                                    {request.zendeskId && <div><strong>Zendesk:</strong> {request.zendeskId}</div>}
+                                </>
+                            ) : (
+                                <>
+                                    <div className="break-words"><strong>Order:</strong> {request.orderNumber}</div>
+                                    <div className="break-words"><strong>Item:</strong> {request.item}</div>
+                                    {request.zendeskId && <div><strong>Zendesk:</strong> {request.zendeskId}</div>}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                    
+                    <div className="bg-white p-3 sm:p-4 rounded border">
+                        <div className="font-bold mb-2 text-sm sm:text-base">📨 Manager Response:</div>
+                        <div className="text-gray-700 break-words text-xs sm:text-base">{request.response}</div>
+                    </div>
+                </div>
+            );
+        }
+
+        function CollapsibleManagerCard({ request, response, setResponse, onComplete, formatDate, isOpen, onToggle }) {
+            return (
+                <div className="border rounded-lg mb-3 overflow-hidden bg-white hover:shadow-md transition-shadow">
+                    {/* Collapsed Header - Always Visible */}
+                    <button
+                        onClick={onToggle}
+                        className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    >
+                        <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                            <span className="text-2xl flex-shrink-0">{request.type === 'get-item' ? '🛍️' : '📦'}</span>
+                            <div className="min-w-0 flex-1">
+                                <div className="font-semibold text-gray-900 truncate">
+                                    {request.type === 'get-item' ? 'Get Item' : 'Fill Order'} • <span className="text-blue-600">{request.submittedByName}</span>
+                                </div>
+                                <div className="text-sm text-gray-600 truncate">
+                                    {request.type === 'get-item' ? request.item : `Order ${request.orderNumber}`}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex-shrink-0 ml-3 w-9 h-9 flex items-center justify-center rounded-full bg-blue-100 hover:bg-blue-200 transition-colors">
+                            <svg 
+                                width="20" 
+                                height="20" 
+                                viewBox="0 0 20 20" 
+                                fill="none" 
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="text-blue-600"
+                            >
+                                {isOpen ? (
+                                    // Minus sign
+                                    <path 
+                                        d="M4 10H16" 
+                                        stroke="currentColor" 
+                                        strokeWidth="2.5" 
+                                        strokeLinecap="round"
+                                    />
+                                ) : (
+                                    // Plus sign
+                                    <>
+                                        <path 
+                                            d="M10 4V16" 
+                                            stroke="currentColor" 
+                                            strokeWidth="2.5" 
+                                            strokeLinecap="round"
+                                        />
+                                        <path 
+                                            d="M4 10H16" 
+                                            stroke="currentColor" 
+                                            strokeWidth="2.5" 
+                                            strokeLinecap="round"
+                                        />
+                                    </>
+                                )}
+                            </svg>
+                        </div>
+                    </button>
+
+                    {/* Expanded Content - Only When Open */}
+                    {isOpen && (
+                        <div className="border-t bg-gray-50 p-4">
+                            <div className="mb-4">
+                                <div className="text-xs text-gray-500 mb-3">
+                                    Submitted: {formatDate(request.submittedAt)}
+                                </div>
+                            </div>
+
+                            <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mb-4">
+                                <div className="text-sm font-semibold text-blue-900 mb-2">Request Details</div>
+                                {request.type === 'get-item' ? (
+                                    <div className="space-y-1 text-sm">
+                                        <div className="break-words"><span className="font-medium">Item:</span> {request.item}</div>
+                                        {request.link && <div className="break-all"><span className="font-medium">Link:</span> <a href={request.link} target="_blank" className="text-blue-600 hover:underline">{request.link}</a></div>}
+                                        {request.pricePoint && <div><span className="font-medium">Price:</span> {request.pricePoint}</div>}
+                                        {request.zendeskId && <div><span className="font-medium">Zendesk:</span> {request.zendeskId}</div>}
+                                    </div>
+                                ) : (
+                                    <div className="space-y-1 text-sm">
+                                        <div className="break-words"><span className="font-medium">Order:</span> {request.orderNumber}</div>
+                                        <div className="break-words"><span className="font-medium">Item:</span> {request.item}</div>
+                                        {request.zendeskId && <div><span className="font-medium">Zendesk:</span> {request.zendeskId}</div>}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="block font-semibold mb-2 text-sm">Your Response:</label>
+                                    <textarea
+                                        value={response}
+                                        onChange={(e) => setResponse(e.target.value)}
+                                        placeholder="Type your response here..."
+                                        className="w-full border border-gray-300 rounded-lg p-3 h-32 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                </div>
+                                
+                                <button
+                                    onClick={onComplete}
+                                    className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-lg transition-colors"
+                                >
+                                    ✅ Complete & Send
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        function CompletedManagerCard({ request, onDelete, formatDate, isSelected, onToggleSelect }) {
+            return (
+                <div className={`border-2 ${isSelected ? 'border-blue-500 bg-blue-50' : 'border-green-200 bg-green-50'} p-4 sm:p-6 rounded-lg mb-3 sm:mb-4 transition`}>
+                    <div className="flex justify-between items-start mb-3 sm:mb-4">
+                        <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                            <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={onToggleSelect}
+                                className="w-4 h-4 sm:w-5 sm:h-5 cursor-pointer flex-shrink-0"
+                            />
+                            <span className="text-2xl sm:text-3xl flex-shrink-0">{request.type === 'get-item' ? '🛍️' : '📦'}</span>
+                            <div className="min-w-0 flex-1">
+                                <div className="font-bold text-sm sm:text-base truncate">{request.type === 'get-item' ? 'Get Item' : 'Fill Order'}</div>
+                                <div className="text-xs sm:text-sm text-gray-600 truncate">From: {request.submittedByName || 'Unknown'}</div>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => onDelete(request.id)}
+                            className="text-gray-400 hover:text-red-600 text-2xl sm:text-3xl leading-none ml-2 flex-shrink-0"
+                        >
+                            ×
+                        </button>
+                    </div>
+                    
+                    <div className="bg-white p-3 sm:p-4 rounded border mb-2 sm:mb-3">
+                        <div className="font-bold mb-2 text-sm sm:text-base">Original Request:</div>
+                        <div className="space-y-1 text-gray-700 text-xs sm:text-base">
+                            {request.type === 'get-item' ? (
+                                <>
+                                    <div className="break-words"><strong>Item:</strong> {request.item}</div>
+                                    {request.link && <div className="break-all"><strong>Link:</strong> <a href={request.link} className="text-blue-600 hover:underline" target="_blank">{request.link}</a></div>}
+                                    {request.pricePoint && <div><strong>Price:</strong> {request.pricePoint}</div>}
+                                    {request.zendeskId && <div><strong>Zendesk:</strong> {request.zendeskId}</div>}
+                                </>
+                            ) : (
+                                <>
+                                    <div className="break-words"><strong>Order:</strong> {request.orderNumber}</div>
+                                    <div className="break-words"><strong>Item:</strong> {request.item}</div>
+                                    {request.zendeskId && <div><strong>Zendesk:</strong> {request.zendeskId}</div>}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                    
+                    <div className="bg-white p-3 sm:p-4 rounded border mb-2">
+                        <div className="font-bold mb-2 text-sm sm:text-base">Your Response:</div>
+                        <div className="break-words text-xs sm:text-base">{request.response}</div>
+                    </div>
+                    
+                    <div className="text-xs text-gray-500">Completed: {formatDate(request.completedAt)}</div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
