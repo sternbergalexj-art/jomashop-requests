@@ -114,6 +114,40 @@
             outline: 2px solid var(--accent);
             outline-offset: 2px;
         }
+
+        /* ═══════════════════════════════════════════════════
+           MOBILE RESPONSIVE (iPhone 14 = 390px wide)
+           ═══════════════════════════════════════════════════ */
+        @media (max-width: 640px) {
+            /* Tighter page padding */
+            .app-main { padding: 0 14px 24px !important; }
+            .app-header-inner { padding: 12px 14px !important; }
+
+            /* Stack stat cards vertically on small screens */
+            .stat-row { flex-direction: column !important; gap: 8px !important; }
+
+            /* Smaller page tabs */
+            .page-tab-btn { padding: 10px 14px !important; font-size: 13px !important; }
+
+            /* Table scroll hint */
+            .table-wrap { margin: 0 -14px; padding: 0 14px; }
+
+            /* Cards tighter */
+            .card-compact { padding: 14px 16px !important; }
+
+            /* Login form */
+            .login-card { padding: 32px 24px !important; }
+
+            /* Buttons full width on mobile */
+            .btn-row-mobile { flex-direction: column !important; }
+            .btn-row-mobile > * { width: 100% !important; }
+        }
+
+        @media (max-width: 390px) {
+            .app-main { padding: 0 10px 20px !important; }
+            .app-header-inner { padding: 10px 10px !important; }
+            .stat-row { gap: 6px !important; }
+        }
     </style>
 </head>
 <body>
@@ -372,23 +406,32 @@
             );
         }
 
-        // ── Stat Card ──
-        function StatCard({ label, value, highlight }) {
+        // ── Stat Card (Wire Dashboard style with color accent) ──
+        function StatCard({ label, value, color }) {
+            const colors = {
+                blue: { bg: '#F0F4FF', border: '#4A7C59', accent: 'var(--text-primary)' },
+                yellow: { bg: 'var(--yellow-bg)', border: 'var(--yellow-border)', accent: 'var(--yellow-text)' },
+                green: { bg: 'var(--green-bg)', border: 'var(--green-border)', accent: 'var(--green-text)' },
+                default: { bg: 'var(--bg-card)', border: 'var(--border)', accent: 'var(--text-primary)' }
+            };
+            const c = colors[color] || colors.default;
             return (
                 <div style={{
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border)',
+                    background: c.bg,
+                    border: `1px solid ${c.border}`,
+                    borderLeft: `4px solid ${c.border}`,
                     borderRadius: 'var(--radius-md)',
-                    padding: '20px 24px',
+                    padding: '14px 18px',
                     flex: 1,
-                    minWidth: 0
+                    minWidth: '100px'
                 }}>
-                    <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: 500 }}>{label}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 500 }}>{label}</div>
                     <div style={{
-                        fontSize: highlight ? '28px' : '32px',
+                        fontSize: '26px',
                         fontWeight: 700,
-                        color: highlight ? 'var(--accent)' : 'var(--text-primary)',
-                        letterSpacing: '-0.02em'
+                        color: c.accent,
+                        letterSpacing: '-0.02em',
+                        lineHeight: 1.1
                     }}>{value}</div>
                 </div>
             );
@@ -438,16 +481,19 @@
                     display: 'flex',
                     gap: '0',
                     borderBottom: '1px solid var(--border)',
-                    marginBottom: '0'
+                    marginBottom: '0',
+                    overflowX: 'auto',
+                    WebkitOverflowScrolling: 'touch'
                 }}>
                     {tabs.map(tab => {
                         const isActive = active === tab.key;
                         return (
                             <button
+                                className="page-tab-btn"
                                 key={tab.key}
                                 onClick={() => onChange(tab.key)}
                                 style={{
-                                    padding: '14px 20px',
+                                    padding: '14px 18px',
                                     background: 'none',
                                     border: 'none',
                                     borderBottom: isActive ? '2px solid var(--text-primary)' : '2px solid transparent',
@@ -775,7 +821,7 @@
                     background: 'var(--bg-page)',
                     padding: '20px'
                 }}>
-                    <div className="fade-in" style={{
+                    <div className="fade-in login-card" style={{
                         background: 'var(--bg-card)',
                         borderRadius: 'var(--radius-lg)',
                         border: '1px solid var(--border)',
@@ -799,7 +845,7 @@
                         <FormField label="Your Name" required value={name} onChange={setName} placeholder="e.g., Sarah Chen" />
                         <FormField label="Email" required value={email} onChange={setEmail} placeholder="name@jomashop.com" type="email" />
 
-                        <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+                        <div className="btn-row-mobile" style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
                             <Button onClick={() => handleLogin('team')} size="lg" style={{ flex: 1 }}>
                                 Team Member
                             </Button>
@@ -1088,10 +1134,10 @@
                         {tab === 'dashboard' && (
                             <div className="fade-in">
                                 {/* Stat cards */}
-                                <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', flexWrap: 'wrap' }}>
-                                    <StatCard label="Total requests" value={requests.length} />
-                                    <StatCard label="Pending" value={pending.length} />
-                                    <StatCard label="Completed" value={completed.length} />
+                                <div className="stat-row" style={{ display: 'flex', gap: '10px', marginBottom: '28px', flexWrap: 'wrap' }}>
+                                    <StatCard label="Total requests" value={requests.length} color="blue" />
+                                    <StatCard label="Pending" value={pending.length} color="yellow" />
+                                    <StatCard label="Completed" value={completed.length} color="green" />
                                 </div>
 
                                 {/* User table */}
@@ -1884,7 +1930,7 @@
                         top: 0,
                         zIndex: 10
                     }}>
-                        <div style={{
+                        <div className="app-header-inner" style={{
                             maxWidth: '960px',
                             margin: '0 auto',
                             padding: '16px 28px',
@@ -1892,24 +1938,25 @@
                             justifyContent: 'space-between',
                             alignItems: 'center'
                         }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
                                 <img src={LOGO_URL} alt="Jomashop" style={{
-                                    width: '40px', height: '40px',
+                                    width: '36px', height: '36px',
                                     borderRadius: 'var(--radius-sm)',
-                                    objectFit: 'cover'
+                                    objectFit: 'cover',
+                                    flexShrink: 0
                                 }} />
-                                <div>
-                                    <div style={{ fontSize: '16px', fontWeight: 700 }}>Request Manager</div>
-                                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontSize: '15px', fontWeight: 700 }}>Request Manager</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {userName}
                                         <span style={{
                                             display: 'inline-block',
-                                            marginLeft: '8px',
-                                            padding: '1px 10px',
+                                            marginLeft: '6px',
+                                            padding: '1px 8px',
                                             borderRadius: 'var(--radius-pill)',
                                             background: userRole === 'manager' ? 'var(--accent-light)' : 'var(--blue-bg)',
                                             color: userRole === 'manager' ? 'var(--accent)' : 'var(--blue-text)',
-                                            fontSize: '11px',
+                                            fontSize: '10px',
                                             fontWeight: 600
                                         }}>
                                             {userRole === 'manager' ? 'Admin' : 'Team'}
@@ -1922,7 +1969,7 @@
                     </header>
 
                     {/* Main content */}
-                    <main style={{
+                    <main className="app-main" style={{
                         maxWidth: '960px',
                         margin: '0 auto',
                         padding: '0 28px 40px'
