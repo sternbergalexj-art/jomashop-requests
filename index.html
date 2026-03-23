@@ -126,7 +126,7 @@
             /* Stack stat cards vertically on small screens */
             .stat-row { flex-direction: column !important; gap: 8px !important; }
 
-            /* Smaller page tabs */
+            /* Smaller page tabs + adjust sticky offset for smaller header */
             .page-tab-btn { padding: 10px 14px !important; font-size: 13px !important; }
 
             /* Table scroll hint */
@@ -483,7 +483,15 @@
                     borderBottom: '1px solid var(--border)',
                     marginBottom: '0',
                     overflowX: 'auto',
-                    WebkitOverflowScrolling: 'touch'
+                    WebkitOverflowScrolling: 'touch',
+                    position: 'sticky',
+                    top: '65px',
+                    zIndex: 9,
+                    background: 'var(--bg-page)',
+                    marginLeft: '-28px',
+                    marginRight: '-28px',
+                    paddingLeft: '28px',
+                    paddingRight: '28px'
                 }}>
                     {tabs.map(tab => {
                         const isActive = active === tab.key;
